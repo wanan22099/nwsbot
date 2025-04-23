@@ -1,28 +1,30 @@
+# Railway 应用配置
+build:
+  # 使用Python环境
+  builder: nixpacks
+
 variables:
   - key: BOT_TOKEN
-    description: "Your Telegram bot token"
+    description: "从 @BotFather 获取的Telegram Bot Token"
     required: true
   - key: CHANNEL_ID
-    description: "Your channel ID (e.g., @yourchannel)"
+    description: "目标频道ID (格式: @channelname 或 -100123456789)"
     required: true
   - key: ADMIN_ID
-    description: "Your Telegram user ID"
-    required: true
-  - key: SUPPORT_LINK
-    description: "Link to your support chat"
-    required: true
-  - key: PRIVATE_CHANNEL_LINK
-    description: "Link to your private channel"
-    required: true
-  - key: APP_LINK
-    description: "Link to your Telegram app"
+    description: "管理员Telegram用户ID (数字)"
     required: true
   - key: WEBHOOK_SECRET
-    description: "Secret token for webhook verification"
-    required: false
-    default: "your-secret-token"
+    description: "Webhook安全令牌"
+    generate: true  # Railway会自动生成
 
 deployments:
   web:
     start: python bot.py
     healthcheckPath: /healthz
+    # 使用Webhook需要持久运行
+    alwaysOn: true
+
+# 资源分配 (免费 tier)
+resources:
+  cpu: 0.5
+  memory: 512MB
