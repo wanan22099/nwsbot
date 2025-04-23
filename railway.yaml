@@ -5,8 +5,6 @@ variables:
     required: true
   - key: ADMIN_ID
     required: true
-  - key: WEBHOOK_SECRET
-    generate: true
 
 deployments:
   web:
