@@ -1,0 +1,28 @@
+variables:
+  - key: BOT_TOKEN
+    description: "Your Telegram bot token"
+    required: true
+  - key: CHANNEL_ID
+    description: "Your channel ID (e.g., @yourchannel)"
+    required: true
+  - key: ADMIN_ID
+    description: "Your Telegram user ID"
+    required: true
+  - key: SUPPORT_LINK
+    description: "Link to your support chat"
+    required: true
+  - key: PRIVATE_CHANNEL_LINK
+    description: "Link to your private channel"
+    required: true
+  - key: APP_LINK
+    description: "Link to your Telegram app"
+    required: true
+  - key: WEBHOOK_SECRET
+    description: "Secret token for webhook verification"
+    required: false
+    default: "your-secret-token"
+
+deployments:
+  web:
+    start: python bot.py
+    healthcheckPath: /healthz
