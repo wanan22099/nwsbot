@@ -1,0 +1,22 @@
+# 基础配置
+bot:
+  token: "YOUR_BOT_TOKEN_DEV"  # 开发环境默认值，生产环境会被环境变量覆盖
+  admin_id: 123456789  # 管理员ID
+
+# 频道和链接配置
+channel:
+  public: "@your_public_channel"  # 公开频道
+  private: "https://t.me/your_private_channel"  # 私有频道链接
+  support: "https://t.me/your_support_bot"  # 客服链接
+  app: "https://t.me/your_app_bot"  # 应用链接
+
+# 定时任务配置
+schedule:
+  daily_message:
+    time: "09:00"  # 每天发送时间 (UTC)
+    message: "Good morning! Here's your daily update."
+
+# 多语言设置
+languages:
+  default: "en"
+  supported: ["en", "fr", "es", "ar", "pt", "ru"]
