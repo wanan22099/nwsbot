@@ -1,10 +1,46 @@
 {
-  "row1": [
-    {"text": "🕹️ 打开APP", "type": "web_app", "data": "https://your-app.com"},
-    {"text": "📢 私有频道", "type": "url", "data": "https://t.me/private_channel"}
-  ],
-  "row2": [
-    {"text": "👨💻 联系客服", "type": "url", "data": "https://t.me/cs_bot"},
-    {"text": "👥 邀请朋友", "type": "url", "data": "https://t.me/share/group_invite"}
-  ]
+  "open_app": {
+    "text": {
+      "ar": "🕹️ افتح التطبيق",
+      "en": "🕹️ OPEN APP",
+      "fr": "🕹️ OUVRIR L'APP",
+      "pt": "🕹️ ABRIR APP",
+      "es": "🕹️ ABRIR APP"
+    },
+    "type": "web_app",
+    "url": "https://app.example.com"
+  },
+  "invite": {
+    "text": {
+      "ar": "👥 دعوة أصدقاء",
+      "en": "👥 INVITE",
+      "fr": "👥 INVITER",
+      "pt": "👥 CONVIDAR",
+      "es": "👥 INVITAR"
+    },
+    "type": "url",
+    "url": "https://t.me/share/group"
+  },
+  "customer_service": {
+    "text": {
+      "ar": "💬 الدعم",
+      "en": "💬 SUPPORT",
+      "fr": "💬 SUPPORT",
+      "pt": "💬 SUPORTE",
+      "es": "💬 SOPORTE"
+    },
+    "type": "url",
+    "url": "https://t.me/cs_bot"
+  },
+  "join_channel": {
+    "text": {
+      "ar": "📢 انضم إلى القناة",
+      "en": "📢 JOIN CHANNEL",
+      "fr": "📢 REJOINDRE",
+      "pt": "📢 ENTRAR",
+      "es": "📢 UNIRSE"
+    },
+    "type": "url",
+    "url": "https://t.me/official_channel"
+  }
 }
