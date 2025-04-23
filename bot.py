@@ -6,7 +6,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
-# ==================== 初始化配置 ====================
+# ===== 初始化配置 =====
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==================== 工具函数 ====================
+# ===== 工具函数 =====
 def get_abs_path(relative_path):
     """获取绝对路径（适配Railway容器环境）"""
     return os.path.join(os.getcwd(), relative_path)
@@ -33,14 +33,13 @@ def load_config(file):
         logger.error(f"加载配置文件失败: {e}")
         raise
 
-# ==================== 业务逻辑 ====================
+# ===== 业务逻辑 =====
 async def send_scheduled_message():
     """定时频道消息推送"""
     try:
         config = load_config("schedule.json")
         bot = Bot(token=TOKEN)
         
-        # 构建消息内容
         with open(get_abs_path(f"assets/{config['image']}"), "rb") as photo:
             await bot.send_photo(
                 chat_id=CHANNEL_ID,
@@ -71,12 +70,15 @@ async def welcome_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"欢迎消息发送失败: {e}")
 
-# ==================== 启动逻辑 ====================
-async def bootstrap(app: Application):
-    """初始化Webhook和定时任务"""
+# ===== 启动逻辑 =====
+async def on_startup(app: Application):
+    """启动时初始化"""
     try:
         # 设置Webhook
-        await app.bot.set_webhook(f"{WEBHOOK_URL}/telegram")
+        await app.bot.set_webhook(
+            url=f"{WEBHOOK_URL}/telegram",
+            # secret_token=os.getenv("WEBHOOK_SECRET")  # 可选安全验证
+        )
         logger.info(f"Webhook已设置: {WEBHOOK_URL}/telegram")
         
         # 启动定时任务
@@ -95,17 +97,20 @@ async def bootstrap(app: Application):
 
 if __name__ == "__main__":
     # 创建Bot实例
-    app = Application.builder().token(TOKEN).build()
+    application = Application.builder().token(TOKEN).build()
     
     # 添加处理器
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_user))
+    application.add_handler(
+        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_user)
+    )
     
-    # 启动Webhook服务
+    # 启动Webhook服务（关键修改点）
     PORT = int(os.environ.get("PORT", 8000))
-    app.run_webhook(
+    application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         webhook_url=f"{WEBHOOK_URL}/telegram",
-        bootstrap=bootstrap,  # 关键修改点
-        secret_token=os.getenv("WEBHOOK_SECRET", "")  # 可选安全验证
+        # 新版PTB需要通过post_init参数传递启动函数
+        post_init=on_startup,
+        drop_pending_updates=True
     )
