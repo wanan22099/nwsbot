@@ -1,3 +1,19 @@
+# 核心依赖
 python-telegram-bot==20.3
-apscheduler==3.10.0
+apscheduler==3.10.1
+PyYAML==6.0
 python-dotenv==1.0.0
+
+# Web服务器相关
+fastapi==0.95.2
+uvicorn==0.22.0
+httpx==0.24.1
+
+# 辅助工具
+pytz==2023.3  # 时区处理
+tzlocal==4.3  # 本地时区支持
+loguru==0.7.0  # 增强日志
+
+# 开发依赖 (可选)
+pytest==7.3.1
+python-multipart==0.0.6
