@@ -1,183 +1,226 @@
 import os
-import yaml
 import logging
+from datetime import datetime, time
+from threading import Thread
+from queue import Queue
+
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    CallbackContext,
+    Updater, 
+    CommandHandler, 
+    MessageHandler, 
+    Filters, 
+    CallbackContext, 
+    CallbackQueryHandler
 )
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime
+from telegram.error import TelegramError
+import redis
 
 # 配置日志
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-class ConfigManager:
-    """配置管理器"""
-    _instance = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance.load_config()
-        return cls._instance
-    
-    def load_config(self):
-        """加载配置文件"""
-        try:
-            with open('config/settings.yaml', 'r') as f:
-                self.settings = yaml.safe_load(f)
-            with open('config/messages.yaml', 'r', encoding='utf-8') as f:
-                self.messages = yaml.safe_load(f)
-            
-            # 环境变量覆盖配置
-            self.settings['bot_token'] = os.getenv('BOT_TOKEN', self.settings.get('bot_token', ''))
-            self.settings['channel_id'] = os.getenv('CHANNEL_ID', self.settings.get('channel_id', ''))
-            self.settings['admin_id'] = int(os.getenv('ADMIN_ID', self.settings.get('admin_id', 0)))
-            
-            logger.info("配置加载成功")
-        except Exception as e:
-            logger.error(f"加载配置失败: {e}")
-            raise
+# 初始化Redis
+r = redis.Redis(
+    host=os.getenv('REDIS_HOST', 'localhost'),
+    port=int(os.getenv('REDIS_PORT', 6379)),
+    password=os.getenv('REDIS_PASSWORD', None),
+    db=0
+)
+
+# 消息队列
+message_queue = Queue()
 
 class TelegramBot:
-    def __init__(self):
-        self.config = ConfigManager()
-        self.scheduler = AsyncIOScheduler()
-        self.application = None
-        self.setup()
-
-    def setup(self):
-        """初始化设置"""
-        self.setup_application()
-        self.setup_handlers()
-        self.setup_scheduler()
-
-    def setup_application(self):
-        """创建Telegram应用"""
-        self.application = Application.builder() \
-            .token(self.config.settings['bot_token']) \
-            .build()
-
-    def setup_handlers(self):
-        """设置消息处理器"""
-        self.application.add_handler(
-            MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, self.welcome_new_member)
-        )
-        self.application.add_handler(
-            CommandHandler("start", self.cmd_start)
-        )
-        self.application.add_handler(
-            CommandHandler("reload", self.cmd_reload)
-        )
-        self.application.add_error_handler(self.error_handler)
-
-    def setup_scheduler(self):
-        """设置定时任务"""
-        hour, minute = map(int, self.config.settings['schedule']['daily_message']['time'].split(':'))
-        self.scheduler.add_job(
-            self.send_daily_message,
-            CronTrigger(hour=hour, minute=minute)
-        )
-        self.scheduler.start()
-
-    async def send_daily_message(self):
-        """发送每日定时消息"""
-        try:
-            message = self.config.settings['schedule']['daily_message']['message']
-            await self.application.bot.send_message(
-                chat_id=self.config.settings['channel_id'],
-                text=message
-            )
-            logger.info("每日消息发送成功")
-        except Exception as e:
-            logger.error(f"发送每日消息失败: {e}")
-
-    async def welcome_new_member(self, update: Update, context: CallbackContext):
-        """欢迎新成员"""
-        try:
-            for member in update.message.new_chat_members:
-                if member.id == context.bot.id:
-                    continue
+    def __init__(self, token):
+        self.token = token
+        self.bot = Bot(token=token)
+        self.updater = Updater(token=token, use_context=True)
+        self.dispatcher = self.updater.dispatcher
+        
+        # 注册处理器
+        self._register_handlers()
+        
+        # 启动定时任务线程
+        self._start_scheduler()
+    
+    def _register_handlers(self):
+        # 新成员加入处理
+        self.dispatcher.add_handler(
+            MessageHandler(Filters.status_update.new_chat_members, self.welcome_new_member)
+        
+        # 按钮回调处理
+        self.dispatcher.add_handler(
+            CallbackQueryHandler(self.button_callback))
+        
+        # 测试命令
+        self.dispatcher.add_handler(
+            CommandHandler('test', self.test_command))
+    
+    def _start_scheduler(self):
+        # 启动定时任务线程
+        scheduler_thread = Thread(target=self._scheduler_worker)
+        scheduler_thread.daemon = True
+        scheduler_thread.start()
+    
+    def _scheduler_worker(self):
+        """定时任务工作线程"""
+        while True:
+            # 检查是否有定时任务需要执行
+            now = datetime.now().strftime('%H:%M')
+            scheduled_posts = r.hgetall('scheduled_posts')
+            
+            for channel_id, post_time in scheduled_posts.items():
+                if post_time.decode('utf-8') == now:
+                    self.send_scheduled_message(channel_id.decode('utf-8'))
+            
+            # 每分钟检查一次
+            time.sleep(60)
+    
+    def welcome_new_member(self, update: Update, context: CallbackContext):
+        """新成员加入处理"""
+        for member in update.message.new_chat_members:
+            if member.is_bot:
+                continue
                 
-                # 语言检测
-                user_lang = member.language_code or 'en'
-                lang = user_lang if user_lang in self.config.messages['welcome_messages'] else 'en'
-                welcome = self.config.messages['welcome_messages'][lang]
-                
-                # 创建按钮
-                keyboard = []
-                for btn in welcome['buttons']:
-                    if btn[1] == "app":
-                        url = self.config.settings['app_link']
-                    elif btn[1] == "channel":
-                        url = self.config.settings['private_channel_link']
-                    elif btn[1] == "support":
-                        url = self.config.settings['support_link']
-                    elif btn[1] == "invite":
-                        url = f"https://t.me/share/url?url={self.config.settings['channel_id']}"
-                    
-                    keyboard.append([InlineKeyboardButton(btn[0], url=url)])
-                
+            try:
                 # 发送欢迎消息
-                with open('data/welcome_image.jpg', 'rb') as photo:
-                    await context.bot.send_photo(
-                        chat_id=member.id,
-                        photo=photo,
-                        caption=welcome['text'].format(username=member.first_name),
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                logger.info(f"已欢迎新用户: {member.id}")
-        except Exception as e:
-            logger.error(f"欢迎新用户失败: {e}")
+                self.send_welcome_message(update.effective_chat.id, member.id)
+            except TelegramError as e:
+                logger.error(f"Error sending welcome message: {e}")
+    
+    def send_welcome_message(self, chat_id, user_id):
+        """发送欢迎消息"""
+        # 图片URL或文件ID
+        photo_url = "https://example.com/welcome_image.jpg"  # 替换为你的图片
+        
+        # 欢迎文本
+        welcome_text = """
+        Welcome to our channel! 🎉
 
-    async def cmd_start(self, update: Update, context: CallbackContext):
-        """处理/start命令"""
-        await update.message.reply_text("Bot已启动！")
+        Here you'll find regular updates and interesting content.
+        Feel free to explore the options below:
+        """
+        
+        # 创建按钮
+        keyboard = [
+            [
+                InlineKeyboardButton("Open App", callback_data='open_app'),
+                InlineKeyboardButton("Private Channel", callback_data='private_channel')
+            ],
+            [
+                InlineKeyboardButton("Contact Support", callback_data='contact_support'),
+                InlineKeyboardButton("Invite Friends", callback_data='invite_friends')
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # 发送带图片和按钮的消息
+        self.bot.send_photo(
+            chat_id=chat_id,
+            photo=photo_url,
+            caption=welcome_text,
+            reply_markup=reply_markup
+        )
+    
+    def send_scheduled_message(self, channel_id):
+        """发送定时消息"""
+        # 图片URL或文件ID
+        photo_url = "https://example.com/scheduled_image.jpg"  # 替换为你的图片
+        
+        # 消息文本
+        message_text = """
+        Daily Update 🌟
 
-    async def cmd_reload(self, update: Update, context: CallbackContext):
-        """重新加载配置"""
-        if update.effective_user.id == self.config.settings['admin_id']:
-            self.config.load_config()
-            await update.message.reply_text("配置已重新加载！")
-        else:
-            await update.message.reply_text("无权限执行此操作")
-
-    async def error_handler(self, update: Update, context: CallbackContext):
-        """错误处理"""
-        logger.error(f"更新 {update} 导致错误: {context.error}")
-        if update.effective_message:
-            await update.effective_message.reply_text("出错了，请稍后再试")
-
-    async def set_webhook(self):
-        """设置Webhook"""
-        webhook_url = f"https://{os.getenv('RAILWAY_STATIC_URL')}/webhook"
-        await self.application.bot.set_webhook(webhook_url)
-        logger.info(f"Webhook设置为: {webhook_url}")
-
-    def run(self):
-        """启动Bot"""
-        if os.getenv('RAILWAY_ENVIRONMENT'):
-            # Railway生产环境使用Webhook
-            port = int(os.getenv("PORT", 8443))
-            self.application.run_webhook(
-                listen="0.0.0.0",
-                port=port,
-                webhook_url=None,
-                secret_token=os.getenv('WEBHOOK_SECRET')
+        Here's your regular update with the latest news and content.
+        Check out the options below:
+        """
+        
+        # 创建按钮
+        keyboard = [
+            [
+                InlineKeyboardButton("Open App", callback_data='open_app'),
+                InlineKeyboardButton("Private Channel", callback_data='private_channel')
+            ],
+            [
+                InlineKeyboardButton("Contact Support", callback_data='contact_support'),
+                InlineKeyboardButton("Invite Friends", callback_data='invite_friends')
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # 发送消息
+        try:
+            self.bot.send_photo(
+                chat_id=channel_id,
+                photo=photo_url,
+                caption=message_text,
+                reply_markup=reply_markup
             )
-        else:
-            # 本地开发使用polling
-            self.application.run_polling()
+        except TelegramError as e:
+            logger.error(f"Error sending scheduled message: {e}")
+    
+    def button_callback(self, update: Update, context: CallbackContext):
+        """按钮回调处理"""
+        query = update.callback_query
+        query.answer()
+        
+        data = query.data
+        chat_id = query.message.chat_id
+        
+        if data == 'open_app':
+            # 打开内置APP
+            app_url = "https://telegram.me/your_app"  # 替换为你的APP链接
+            self.bot.send_message(
+                chat_id=chat_id,
+                text=f"Please click here to open the app: {app_url}"
+            )
+        
+        elif data == 'private_channel':
+            # 添加私有频道
+            channel_link = "https://t.me/your_private_channel"  # 替换为你的频道链接
+            self.bot.send_message(
+                chat_id=chat_id,
+                text=f"Join our private channel here: {channel_link}"
+            )
+        
+        elif data == 'contact_support':
+            # 联系客服
+            support_link = "https://t.me/your_support"  # 替换为你的客服链接
+            self.bot.send_message(
+                chat_id=chat_id,
+                text=f"Contact our support team here: {support_link}"
+            )
+        
+        elif data == 'invite_friends':
+            # 邀请朋友
+            invite_link = "https://t.me/your_channel"  # 替换为你的频道邀请链接
+            self.bot.send_message(
+                chat_id=chat_id,
+                text=f"Invite your friends to join us! Share this link: {invite_link}"
+            )
+    
+    def test_command(self, update: Update, context: CallbackContext):
+        """测试命令"""
+        update.message.reply_text("Bot is working!")
+    
+    def run(self):
+        """启动机器人"""
+        self.updater.start_polling()
+        self.updater.idle()
+
+def main():
+    # 从环境变量获取Token
+    token = os.getenv('TELEGRAM_TOKEN')
+    if not token:
+        raise ValueError("TELEGRAM_TOKEN environment variable not set")
+    
+    # 创建并运行机器人
+    bot = TelegramBot(token)
+    bot.run()
 
 if __name__ == '__main__':
-    bot = TelegramBot()
-    bot.run()
+    main()
