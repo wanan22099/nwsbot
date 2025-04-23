@@ -1,8 +1,8 @@
 import os
+import time
 import logging
-from datetime import datetime, time
+from datetime import datetime
 from threading import Thread
-from queue import Queue
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -15,6 +15,7 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError
 import redis
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # 配置日志
 logging.basicConfig(
@@ -23,17 +24,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 初始化Redis
-r = redis.Redis(
-    host=os.getenv('REDIS_HOST', 'localhost'),
-    port=int(os.getenv('REDIS_PORT', 6379)),
-    password=os.getenv('REDIS_PASSWORD', None),
-    db=0
-)
-
-# 消息队列
-message_queue = Queue()
-
 class TelegramBot:
     def __init__(self, token):
         self.token = token
@@ -41,44 +31,61 @@ class TelegramBot:
         self.updater = Updater(token=token, use_context=True)
         self.dispatcher = self.updater.dispatcher
         
+        # 初始化Redis
+        redis_url = os.getenv('REDIS_URL') or \
+                   f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}"
+        self.redis = redis.from_url(redis_url)
+        
+        # 初始化定时任务调度器
+        self.scheduler = BackgroundScheduler()
+        self._setup_scheduler()
+        
         # 注册处理器
         self._register_handlers()
-        
-        # 启动定时任务线程
-        self._start_scheduler()
     
     def _register_handlers(self):
+        """注册所有消息处理器"""
         # 新成员加入处理
         self.dispatcher.add_handler(
-            MessageHandler(Filters.status_update.new_chat_members, self.welcome_new_member))
+            MessageHandler(Filters.status_update.new_chat_members, self.welcome_new_member)
+        )
         
         # 按钮回调处理
         self.dispatcher.add_handler(
-            CallbackQueryHandler(self.button_callback))
+            CallbackQueryHandler(self.button_callback)
+        )
         
         # 测试命令
         self.dispatcher.add_handler(
-            CommandHandler('test', self.test_command))
+            CommandHandler('test', self.test_command)
+        )
+        
+        # 设置定时任务命令
+        self.dispatcher.add_handler(
+            CommandHandler('set_schedule', self.set_schedule)
+        )
     
-    def _start_scheduler(self):
-        # 启动定时任务线程
-        scheduler_thread = Thread(target=self._scheduler_worker)
-        scheduler_thread.daemon = True
-        scheduler_thread.start()
+    def _setup_scheduler(self):
+        """配置定时任务调度器"""
+        self.scheduler.add_job(
+            self.check_scheduled_posts,
+            'interval',
+            minutes=1,
+            id='post_checker'
+        )
+        self.scheduler.start()
     
-    def _scheduler_worker(self):
-        """定时任务工作线程"""
-        while True:
-            # 检查是否有定时任务需要执行
+    def check_scheduled_posts(self):
+        """检查并发送定时消息"""
+        try:
             now = datetime.now().strftime('%H:%M')
-            scheduled_posts = r.hgetall('scheduled_posts')
+            scheduled_posts = self.redis.hgetall('scheduled_posts')
             
             for channel_id, post_time in scheduled_posts.items():
                 if post_time.decode('utf-8') == now:
                     self.send_scheduled_message(channel_id.decode('utf-8'))
-            
-            # 每分钟检查一次
-            time.sleep(60)
+        except Exception as e:
+            logger.error(f"Error in scheduled task: {e}")
     
     def welcome_new_member(self, update: Update, context: CallbackContext):
         """新成员加入处理"""
@@ -87,17 +94,14 @@ class TelegramBot:
                 continue
                 
             try:
-                # 发送欢迎消息
                 self.send_welcome_message(update.effective_chat.id, member.id)
             except TelegramError as e:
                 logger.error(f"Error sending welcome message: {e}")
     
     def send_welcome_message(self, chat_id, user_id):
         """发送欢迎消息"""
-        # 图片URL或文件ID
-        photo_url = "https://example.com/welcome_image.jpg"  # 替换为你的图片
+        photo_url = os.getenv('WELCOME_IMAGE_URL', 'https://example.com/welcome.jpg')
         
-        # 欢迎文本
         welcome_text = """
         Welcome to our channel! 🎉
 
@@ -105,7 +109,6 @@ class TelegramBot:
         Feel free to explore the options below:
         """
         
-        # 创建按钮
         keyboard = [
             [
                 InlineKeyboardButton("Open App", callback_data='open_app'),
@@ -116,22 +119,18 @@ class TelegramBot:
                 InlineKeyboardButton("Invite Friends", callback_data='invite_friends')
             ]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # 发送带图片和按钮的消息
         self.bot.send_photo(
             chat_id=chat_id,
             photo=photo_url,
             caption=welcome_text,
-            reply_markup=reply_markup
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
     def send_scheduled_message(self, channel_id):
         """发送定时消息"""
-        # 图片URL或文件ID
-        photo_url = "https://example.com/scheduled_image.jpg"  # 替换为你的图片
+        photo_url = os.getenv('SCHEDULED_IMAGE_URL', 'https://example.com/scheduled.jpg')
         
-        # 消息文本
         message_text = """
         Daily Update 🌟
 
@@ -139,7 +138,6 @@ class TelegramBot:
         Check out the options below:
         """
         
-        # 创建按钮
         keyboard = [
             [
                 InlineKeyboardButton("Open App", callback_data='open_app'),
@@ -150,16 +148,13 @@ class TelegramBot:
                 InlineKeyboardButton("Invite Friends", callback_data='invite_friends')
             ]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # 发送消息
         try:
             self.bot.send_photo(
                 chat_id=channel_id,
                 photo=photo_url,
                 caption=message_text,
-                reply_markup=reply_markup
-            )
+                reply_markup=InlineKeyboardMarkup(keyboard)
         except TelegramError as e:
             logger.error(f"Error sending scheduled message: {e}")
     
@@ -172,36 +167,49 @@ class TelegramBot:
         chat_id = query.message.chat_id
         
         if data == 'open_app':
-            # 打开内置APP
-            app_url = "https://telegram.me/your_app"  # 替换为你的APP链接
+            app_url = os.getenv('APP_URL', 'https://t.me/your_app')
             self.bot.send_message(
                 chat_id=chat_id,
                 text=f"Please click here to open the app: {app_url}"
             )
         
         elif data == 'private_channel':
-            # 添加私有频道
-            channel_link = "https://t.me/your_private_channel"  # 替换为你的频道链接
+            channel_link = os.getenv('PRIVATE_CHANNEL_LINK', 'https://t.me/your_private_channel')
             self.bot.send_message(
                 chat_id=chat_id,
                 text=f"Join our private channel here: {channel_link}"
             )
         
         elif data == 'contact_support':
-            # 联系客服
-            support_link = "https://t.me/your_support"  # 替换为你的客服链接
+            support_link = os.getenv('SUPPORT_LINK', 'https://t.me/your_support')
             self.bot.send_message(
                 chat_id=chat_id,
                 text=f"Contact our support team here: {support_link}"
             )
         
         elif data == 'invite_friends':
-            # 邀请朋友
-            invite_link = "https://t.me/your_channel"  # 替换为你的频道邀请链接
+            invite_link = os.getenv('INVITE_LINK', 'https://t.me/your_channel')
             self.bot.send_message(
                 chat_id=chat_id,
                 text=f"Invite your friends to join us! Share this link: {invite_link}"
             )
+    
+    def set_schedule(self, update: Update, context: CallbackContext):
+        """设置定时任务命令"""
+        if len(context.args) != 2:
+            update.message.reply_text("Usage: /set_schedule <channel_id> <HH:MM>")
+            return
+        
+        channel_id, schedule_time = context.args
+        try:
+            self.redis.hset('scheduled_posts', channel_id, schedule_time)
+            update.message.reply_text(
+                f"Schedule set successfully!\n"
+                f"Channel: {channel_id}\n"
+                f"Time: {schedule_time} UTC"
+            )
+        except Exception as e:
+            update.message.reply_text(f"Error setting schedule: {e}")
     
     def test_command(self, update: Update, context: CallbackContext):
         """测试命令"""
@@ -214,12 +222,16 @@ class TelegramBot:
 
 def main():
     # 从环境变量获取Token
-    token = os.getenv('TELEGRAM_TOKEN')
+    token = os.getenv('TELEGRAM_TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
-        raise ValueError("TELEGRAM_TOKEN environment variable not set")
+        raise ValueError(
+            "TELEGRAM_TOKEN environment variable not set. "
+            "Please set it in Railway Variables or .env file"
+        )
     
     # 创建并运行机器人
     bot = TelegramBot(token)
+    logger.info("Bot started successfully")
     bot.run()
 
 if __name__ == '__main__':
