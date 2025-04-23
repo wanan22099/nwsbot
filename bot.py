@@ -50,7 +50,7 @@ class TelegramBot:
     def _register_handlers(self):
         # 新成员加入处理
         self.dispatcher.add_handler(
-            MessageHandler(Filters.status_update.new_chat_members, self.welcome_new_member)
+            MessageHandler(Filters.status_update.new_chat_members, self.welcome_new_member))
         
         # 按钮回调处理
         self.dispatcher.add_handler(
