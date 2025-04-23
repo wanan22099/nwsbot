@@ -1,0 +1,67 @@
+# 欢迎消息模板
+welcome_messages:
+  en:
+    text: |
+      🎉 Welcome to our community, {username}!
+      
+      Here you'll find:
+      - Daily tech updates
+      - Exclusive content
+      - Community support
+    buttons:
+      - ["📱 Open App", "app"]
+      - ["🔒 Private Channel", "channel"]
+      - ["🛎 Contact Support", "support"]
+      - ["📤 Invite Friends", "invite"]
+  
+  fr:
+    text: |
+      🎉 Bienvenue dans notre communauté, {username} !
+      
+      Vous trouverez ici :
+      - Mises à jour quotidiennes
+      - Contenu exclusif
+      - Support communautaire
+    buttons:
+      - ["📱 Ouvrir l'App", "app"]
+      - ["🔒 Chaîne Privée", "channel"]
+      - ["🛎 Support", "support"]
+      - ["📤 Inviter", "invite"]
+
+  es:
+    text: |
+      🎉 ¡Bienvenido a nuestra comunidad, {username}!
+      
+      Aquí encontrarás:
+      - Actualizaciones diarias
+      - Contenido exclusivo
+      - Soporte comunitario
+    buttons:
+      - ["📱 Abrir App", "app"]
+      - ["🔒 Canal Privado", "channel"]
+      - ["🛎 Soporte", "support"]
+      - ["📤 Invitar", "invite"]
+
+  # 其他语言同理...
+  ar:
+    text: |
+      🎉 مرحبًا بك في مجتمعنا، {username}!
+      ...
+  
+  pt:
+    text: |
+      🎉 Bem-vindo à nossa comunidade, {username}!
+      ...
+
+  ru:
+    text: |
+      🎉 Добро пожаловать в наше сообщество, {username}!
+      ...
+
+# 定时消息内容 (可扩展更多消息类型)
+scheduled_messages:
+  daily:
+    en: "📢 Good morning! Here's your daily update from our team."
+    fr: "📢 Bonjour! Voici votre mise à jour quotidienne."
+    es: "📢 ¡Buenos días! Aquí está tu actualización diaria."
+    # 其他语言...
