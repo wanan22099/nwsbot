@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import asyncio
 from telegram import Bot, Update, ReplyKeyboardMarkup
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -71,31 +72,16 @@ async def welcome_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"欢迎消息发送失败: {e}")
 
 # ===== 启动逻辑 =====
-async def on_startup(app: Application):
-    """启动时初始化"""
-    try:
-        # 设置Webhook
-        await app.bot.set_webhook(
-            url=f"{WEBHOOK_URL}/telegram",
-            # secret_token=os.getenv("WEBHOOK_SECRET")  # 可选安全验证
-        )
-        logger.info(f"Webhook已设置: {WEBHOOK_URL}/telegram")
-        
-        # 启动定时任务
-        scheduler = AsyncIOScheduler()
-        scheduler.add_job(
-            send_scheduled_message,
-            'interval',
-            minutes=load_config("schedule.json")["interval_minutes"],
-            timezone="UTC"
-        )
-        scheduler.start()
-        logger.info("定时任务已启动")
-    except Exception as e:
-        logger.critical(f"启动失败: {e}")
-        raise
+async def setup_webhook(app: Application):
+    """Webhook配置"""
+    await app.bot.set_webhook(
+        url=f"{WEBHOOK_URL}/telegram",
+        # secret_token=os.getenv("WEBHOOK_SECRET")  # 可选安全验证
+    )
+    logger.info(f"Webhook已设置: {WEBHOOK_URL}/telegram")
 
-if __name__ == "__main__":
+async def startup():
+    """整体启动流程"""
     # 创建Bot实例
     application = Application.builder().token(TOKEN).build()
     
@@ -104,13 +90,36 @@ if __name__ == "__main__":
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_user)
     )
     
-    # 启动Webhook服务（关键修改点）
-    PORT = int(os.environ.get("PORT", 8000))
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{WEBHOOK_URL}/telegram",
-        # 新版PTB需要通过post_init参数传递启动函数
-        post_init=on_startup,
-        drop_pending_updates=True
+    # 配置Webhook
+    await setup_webhook(application)
+    
+    # 启动定时任务
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        send_scheduled_message,
+        'interval',
+        minutes=load_config("schedule.json")["interval_minutes"],
+        timezone="UTC"
     )
+    scheduler.start()
+    logger.info("定时任务已启动")
+    
+    return application
+
+if __name__ == "__main__":
+    # 新版PTB启动方式
+    PORT = int(os.environ.get("PORT", 8000))
+    
+    async def run():
+        app = await startup()
+        await app.start_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=f"{WEBHOOK_URL}/telegram",
+            drop_pending_updates=True
+        )
+        # 保持运行
+        while True:
+            await asyncio.sleep(3600)
+    
+    asyncio.run(run())
