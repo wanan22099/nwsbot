@@ -156,7 +156,7 @@ class TelegramBot:
                 chat_id=channel_id,
                 photo=photo_url,
                 caption=message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                reply_markup=InlineKeyboardMarkup(keyboard))
         except TelegramError as e:
             logger.error(f"Error sending scheduled message: {e}")
     
