@@ -1,8 +1,9 @@
-# 核心依赖
 python-telegram-bot==20.3
-apscheduler==3.10.1
+apscheduler==3.9.1  # 降级到稳定版本
 PyYAML==6.0
 python-dotenv==1.0.0
+uvicorn==0.22.0
+fastapi==0.95.2
 
 # Web服务器相关
 fastapi==0.95.2
