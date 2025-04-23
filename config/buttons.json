@@ -1,0 +1,10 @@
+{
+  "row1": [
+    {"text": "🕹️ 打开APP", "type": "web_app", "data": "https://your-app.com"},
+    {"text": "📢 私有频道", "type": "url", "data": "https://t.me/private_channel"}
+  ],
+  "row2": [
+    {"text": "👨💻 联系客服", "type": "url", "data": "https://t.me/cs_bot"},
+    {"text": "👥 邀请朋友", "type": "url", "data": "https://t.me/share/group_invite"}
+  ]
+}
