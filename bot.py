@@ -109,7 +109,7 @@ def main():
         'cron',
         hour=8,
         minute=0,
-        args=[application.job_queue.context]
+        kwargs={'context': application.job_queue}
     )
     scheduler.start()
     
