@@ -1,5 +1,6 @@
 import os
 import logging
+import datetime
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -24,6 +25,22 @@ PRIVATE_CHANNEL_LINK = os.getenv('PRIVATE_CHANNEL_LINK', 'https://t.me/yourpriva
 CUSTOMER_SERVICE_LINK = os.getenv('CUSTOMER_SERVICE_LINK', 'https://t.me/yourservice')
 APP_LINK = os.getenv('APP_LINK', 'https://t.me/yourapp')
 IMAGE_URL = os.getenv('IMAGE_URL', 'https://example.com/image.jpg')
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://your-railway-url.railway.app')
+
+async def check_bot_instance(context: ContextTypes.DEFAULT_TYPE):
+    """检查Bot实例是否正常运行"""
+    try:
+        me = await context.bot.get_me()
+        logger.info(f"Bot instance check successful. Running as: {me.username}")
+        return True
+    except Exception as e:
+        logger.error(f"Bot instance check failed: {e}")
+        if ADMIN_CHAT_ID:
+            await context.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"⚠️ Bot instance check failed: {e}"
+            )
+        return False
 
 async def create_message():
     """创建消息内容和键盘"""
@@ -50,6 +67,10 @@ async def create_message():
 async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
     """定时发送消息到频道"""
     try:
+        # 先检查实例状态
+        if not await check_bot_instance(context):
+            return
+            
         text, reply_markup = await create_message()
         await context.bot.send_photo(
             chat_id=CHANNEL_ID,
@@ -70,6 +91,10 @@ async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """欢迎新成员"""
     try:
+        # 检查实例状态
+        if not await check_bot_instance(context):
+            return
+            
         for member in update.message.new_chat_members:
             if member.is_bot:
                 continue
@@ -89,10 +114,18 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """错误处理"""
     logger.error(msg="异常:", exc_info=context.error)
     if ADMIN_CHAT_ID:
-        await context.bot.send_message(
-            chat_id=ADMIN_CHAT_ID,
-            text=f"发生错误: {context.error}"
-        )
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"发生错误: {context.error}"
+            )
+        except Exception as e:
+            logger.error(f"无法发送错误通知: {e}")
+
+async def on_startup(application: Application):
+    """启动时运行"""
+    await check_bot_instance(application.bot_data)
+    logger.info("Bot startup completed")
 
 def main():
     """启动机器人"""
@@ -104,18 +137,32 @@ def main():
     )
     application.add_error_handler(error_handler)
     
-    # 设置定时任务（关键修正部分）
+    # 设置定时任务
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         send_scheduled_message,
         'cron',
         hour=8,
         minute=0,
-        kwargs={'context': application.bot}  # 直接传递bot实例
+        kwargs={'context': application.bot}
     )
     scheduler.start()
     
-    application.run_polling()
+    # 设置启动任务
+    application.add_handler(
+        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
+    )
+    
+    # 使用 Webhook
+    PORT = int(os.environ.get('PORT', 8080))
+    application.run_webhook(
+        listen='0.0.0.0',
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=f'{WEBHOOK_URL}/{TOKEN}',
+        secret_token=os.getenv('SECRET_TOKEN'),
+        on_startup=on_startup
+    )
 
 if __name__ == '__main__':
     main()
