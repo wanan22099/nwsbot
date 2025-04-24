@@ -141,8 +141,8 @@ def main():
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         send_scheduled_message,
-        'cron',
-        hour=8,
+        # 'cron',
+        'interval',    #  hour=8,
         minute=0,
         kwargs={'context': application}
     )
