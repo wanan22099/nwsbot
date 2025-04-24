@@ -27,6 +27,7 @@ APP_LINK = os.getenv('APP_LINK', 'https://t.me/yourapp')
 IMAGE_URL = os.getenv('IMAGE_URL', 'https://example.com/image.jpg')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://your-railway-url.railway.app')
 
+
 async def check_bot_instance(context: ContextTypes.DEFAULT_TYPE):
     """检查Bot实例是否正常运行"""
     try:
@@ -42,15 +43,15 @@ async def check_bot_instance(context: ContextTypes.DEFAULT_TYPE):
             )
         return False
 
+
 async def create_message():
     """创建消息内容和键盘"""
     text = """
     *Welcome to Our Channel!* 🌟
-
     Here you'll find the latest updates and news. 
     Feel free to explore our resources and join our community!
     """
-    
+
     keyboard = [
         [
             InlineKeyboardButton("Open App", url=APP_LINK),
@@ -61,8 +62,9 @@ async def create_message():
             InlineKeyboardButton("Invite Friends", url="https://t.me/share/url?url=https://t.me/yourchannel")
         ]
     ]
-    
+
     return text, InlineKeyboardMarkup(keyboard)
+
 
 async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
     """定时发送消息到频道"""
@@ -70,7 +72,7 @@ async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
         # 先检查实例状态
         if not await check_bot_instance(context):
             return
-            
+
         text, reply_markup = await create_message()
         await context.bot.send_photo(
             chat_id=CHANNEL_ID,
@@ -88,17 +90,18 @@ async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
                 text=f"定时消息发送失败: {e}"
             )
 
+
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """欢迎新成员"""
     try:
         # 检查实例状态
         if not await check_bot_instance(context):
             return
-            
+
         for member in update.message.new_chat_members:
             if member.is_bot:
                 continue
-                
+
             text, reply_markup = await create_message()
             await context.bot.send_photo(
                 chat_id=member.id,
@@ -109,6 +112,7 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
     except Exception as e:
         logger.error(f"欢迎消息发送失败: {e}")
+
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """错误处理"""
@@ -122,38 +126,39 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"无法发送错误通知: {e}")
 
+
 async def on_startup(application: Application):
     """启动时运行"""
     await check_bot_instance(application.bot_data)
     logger.info("Bot startup completed")
 
+
 def main():
     """启动机器人"""
     application = Application.builder().token(TOKEN).build()
-    
+
     # 添加处理器
     application.add_handler(
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
     )
     application.add_error_handler(error_handler)
-    
+
     # 设置定时任务
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         send_scheduled_message,
-        # 'cron',
-        'interval',    #  hour=8,
+        'interval',
         minutes=2,
         kwargs={'context': application}
     )
     scheduler.start()
-    
+
     # 执行启动检查
     async def post_init(application: Application):
         await check_bot_instance(application.bot)
         logger.info("Bot startup completed")
-    
-    # 使用 Webhook
+
+    # 使用Webhook
     PORT = int(os.environ.get('PORT', 8080))
     application.run_webhook(
         listen='0.0.0.0',
@@ -162,9 +167,10 @@ def main():
         webhook_url=f'{WEBHOOK_URL}/{TOKEN}',
         secret_token=os.getenv('SECRET_TOKEN')
     )
-    
+
     # 运行启动任务
     application.create_task(post_init(application))
+
 
 if __name__ == '__main__':
     main()
