@@ -137,7 +137,7 @@ def main():
 
     # 设置定时任务
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(send_scheduled_message, 'interval', minutes=5, kwargs={'context': application})
+    scheduler.add_job(send_scheduled_message, 'interval', minutes=155, kwargs={'context': application})
     scheduler.start()
 
     # 使用 Webhook
