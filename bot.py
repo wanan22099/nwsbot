@@ -53,8 +53,10 @@ async def create_message():
 async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
     """定时发送消息到频道"""
     try:
+        bot = context.bot if hasattr(context, 'bot') else context
         text, reply_markup = await create_message()
-        await context.bot.send_photo(
+        
+        await bot.send_photo(
             chat_id=CHANNEL_ID,
             photo=IMAGE_URL,
             caption=text,
@@ -102,14 +104,14 @@ def main():
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     application.add_error_handler(error_handler)
     
-    # 设置定时任务
+    # 设置定时任务（关键修改部分）
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         send_scheduled_message,
         'cron',
         hour=8,
         minute=0,
-        kwargs={'context': application.job_queue}
+        args=[application.application_context()]  # 正确获取上下文的方式
     )
     scheduler.start()
     
