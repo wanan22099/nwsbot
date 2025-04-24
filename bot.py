@@ -143,7 +143,7 @@ def main():
         send_scheduled_message,
         # 'cron',
         'interval',    #  hour=8,
-        minute=0,
+        minute=2,
         kwargs={'context': application}
     )
     scheduler.start()
