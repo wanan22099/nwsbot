@@ -17,6 +17,8 @@ CUSTOMER_SERVICE_LINK = os.getenv('CUSTOMER_SERVICE_LINK', 'https://t.me/yourser
 APP_LINK = os.getenv('APP_LINK', 'https://t.me/yourapp')
 IMAGE_URL = os.getenv('IMAGE_URL', 'https://example.com/image.jpg')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://your-railway-url.railway.app')
+# 消息文件路径
+MESSAGE_FILE = 'message.txt'
 
 
 async def check_bot_instance(context: ContextTypes.DEFAULT_TYPE):
@@ -35,13 +37,22 @@ async def check_bot_instance(context: ContextTypes.DEFAULT_TYPE):
         return False
 
 
+def read_message_from_file():
+    """从文件中读取消息内容"""
+    try:
+        with open(MESSAGE_FILE, 'r', encoding='utf-8') as file:
+            return file.read()
+    except FileNotFoundError:
+        logger.error(f"消息文件 {MESSAGE_FILE} 未找到。")
+        return "默认消息内容：欢迎加入我们的频道！"
+    except Exception as e:
+        logger.error(f"读取消息文件时出错：{e}")
+        return "默认消息内容：欢迎加入我们的频道！"
+
+
 async def create_message():
     """创建消息内容和键盘"""
-    text = """
-    *Welcome to Our Channel!* 🌟
-    Here you'll find the latest updates and news. 
-    Feel free to explore our resources and join our community!
-    """
+    text = read_message_from_file()
 
     keyboard = [
         [
