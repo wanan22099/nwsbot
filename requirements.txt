@@ -1,5 +1,0 @@
-python-telegram-bot==13.7
-redis==4.1.0
-python-dotenv==0.19.2
-apscheduler==3.6.3  # 使用与python-telegram-bot兼容的版本
-pytz==2023.3
