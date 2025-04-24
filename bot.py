@@ -144,14 +144,14 @@ def main():
         'cron',
         hour=8,
         minute=0,
-        kwargs={'context': application.bot}
+        kwargs={'context': application}
     )
     scheduler.start()
     
-    # 设置启动任务
-    application.add_handler(
-        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
-    )
+    # 执行启动检查
+    async def post_init(application: Application):
+        await check_bot_instance(application.bot)
+        logger.info("Bot startup completed")
     
     # 使用 Webhook
     PORT = int(os.environ.get('PORT', 8080))
@@ -160,9 +160,11 @@ def main():
         port=PORT,
         url_path=TOKEN,
         webhook_url=f'{WEBHOOK_URL}/{TOKEN}',
-        secret_token=os.getenv('SECRET_TOKEN'),
-        on_startup=on_startup
+        secret_token=os.getenv('SECRET_TOKEN')
     )
+    
+    # 运行启动任务
+    application.create_task(post_init(application))
 
 if __name__ == '__main__':
     main()
