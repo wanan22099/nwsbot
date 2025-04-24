@@ -1,23 +1,14 @@
 import os
 import logging
-import datetime
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    ContextTypes,
-    MessageHandler,
-    filters
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, ContextTypes, MessageHandler, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # 配置日志
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 环境变量
+# 从环境变量获取配置信息
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHANNEL_ID = os.getenv('CHANNEL_ID')
 ADMIN_CHAT_ID = os.getenv('ADMIN_CHAT_ID')
@@ -29,7 +20,7 @@ WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://your-railway-url.railway.app')
 
 
 async def check_bot_instance(context: ContextTypes.DEFAULT_TYPE):
-    """检查Bot实例是否正常运行"""
+    """检查 Bot 实例是否正常运行"""
     try:
         me = await context.bot.get_me()
         logger.info(f"Bot instance check successful. Running as: {me.username}")
@@ -69,10 +60,8 @@ async def create_message():
 async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
     """定时发送消息到频道"""
     try:
-        # 先检查实例状态
         if not await check_bot_instance(context):
             return
-
         text, reply_markup = await create_message()
         await context.bot.send_photo(
             chat_id=CHANNEL_ID,
@@ -92,26 +81,24 @@ async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """欢迎新成员"""
+    """欢迎新成员，给新成员私发消息"""
     try:
-        # 检查实例状态
         if not await check_bot_instance(context):
             return
-
-        for member in update.message.new_chat_members:
-            if member.is_bot:
+        for new_member in update.message.new_chat_members:
+            if new_member.is_bot:
                 continue
-
             text, reply_markup = await create_message()
             await context.bot.send_photo(
-                chat_id=member.id,
+                chat_id=new_member.id,
                 photo=IMAGE_URL,
-                caption=f"Hi {member.first_name}! 👋\n\n{text}",
+                caption=text,
                 parse_mode='Markdown',
                 reply_markup=reply_markup
             )
+            logger.info(f"欢迎消息已发送给新成员 {new_member.first_name}")
     except Exception as e:
-        logger.error(f"欢迎消息发送失败: {e}")
+        logger.error(f"欢迎新成员消息发送失败: {e}")
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -127,38 +114,22 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"无法发送错误通知: {e}")
 
 
-async def on_startup(application: Application):
-    """启动时运行"""
-    await check_bot_instance(application.bot_data)
-    logger.info("Bot startup completed")
-
-
 def main():
     """启动机器人"""
     application = Application.builder().token(TOKEN).build()
 
-    # 添加处理器
-    application.add_handler(
-        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
-    )
+    # 添加新成员加入事件的处理器
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
+
+    # 添加错误处理器
     application.add_error_handler(error_handler)
 
     # 设置定时任务
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(
-        send_scheduled_message,
-        'interval',
-        minutes=2,
-        kwargs={'context': application}
-    )
+    scheduler.add_job(send_scheduled_message, 'interval', minutes=5, kwargs={'context': application})
     scheduler.start()
 
-    # 执行启动检查
-    async def post_init(application: Application):
-        await check_bot_instance(application.bot)
-        logger.info("Bot startup completed")
-
-    # 使用Webhook
+    # 使用 Webhook
     PORT = int(os.environ.get('PORT', 8080))
     application.run_webhook(
         listen='0.0.0.0',
@@ -167,9 +138,6 @@ def main():
         webhook_url=f'{WEBHOOK_URL}/{TOKEN}',
         secret_token=os.getenv('SECRET_TOKEN')
     )
-
-    # 运行启动任务
-    application.create_task(post_init(application))
 
 
 if __name__ == '__main__':
