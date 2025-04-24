@@ -1,22 +1,9 @@
 import os
-import time
 import logging
-from datetime import datetime
-import pytz
-from threading import Thread
-
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Updater, 
-    CommandHandler, 
-    MessageHandler, 
-    Filters, 
-    CallbackContext, 
-    CallbackQueryHandler
-)
-from telegram.error import TelegramError
-import redis
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
 from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import time, datetime
 
 # 配置日志
 logging.basicConfig(
@@ -25,216 +12,122 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class TelegramBot:
-    def __init__(self, token):
-        self.token = token
-        self.bot = Bot(token=token)
-        self.updater = Updater(token=token, use_context=True)
-        self.dispatcher = self.updater.dispatcher
-        
-        # 初始化Redis
-        redis_url = os.getenv('REDIS_URL') or \
-                   f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}"
-        self.redis = redis.from_url(redis_url)
-        
-        # 初始化定时任务调度器
-        self.scheduler = BackgroundScheduler(timezone=pytz.UTC)
-        self._setup_scheduler()
-        
-        # 注册处理器
-        self._register_handlers()
+# 从环境变量获取配置
+TOKEN = os.getenv('TELEGRAM_TOKEN')
+CHANNEL_ID = os.getenv('CHANNEL_ID')  # 你的频道ID，如 @yourchannel
+ADMIN_CHAT_ID = os.getenv('ADMIN_CHAT_ID')  # 管理员聊天ID，用于接收错误通知
+PRIVATE_CHANNEL_LINK = os.getenv('PRIVATE_CHANNEL_LINK', 'https://t.me/yourprivatechannel')
+CUSTOMER_SERVICE_LINK = os.getenv('CUSTOMER_SERVICE_LINK', 'https://t.me/yourservice')
+APP_LINK = os.getenv('APP_LINK', 'https://t.me/yourapp')
+
+# 图片URL或文件ID
+IMAGE_URL = os.getenv('IMAGE_URL', 'https://example.com/image.jpg')
+
+def create_message():
+    """创建消息内容和键盘"""
+    # 消息文本
+    text = """
+    *Welcome to Our Channel!* 🌟
+
+    Here you'll find the latest updates and news. 
+    Feel free to explore our resources and join our community!
+    """
     
-    def _register_handlers(self):
-        """注册所有消息处理器"""
-        # 新成员加入处理
-        self.dispatcher.add_handler(
-            MessageHandler(Filters.status_update.new_chat_members, self._welcome_new_member)
-        )
-        
-        # 按钮回调处理
-        self.dispatcher.add_handler(
-            CallbackQueryHandler(self._button_callback)
-        )
-        
-        # 测试命令
-        self.dispatcher.add_handler(
-            CommandHandler('test', self._test_command)
-        )
-        
-        # 设置定时任务命令
-        self.dispatcher.add_handler(
-            CommandHandler('set_schedule', self._set_schedule)
-        )
+    # 创建内联键盘
+    keyboard = [
+        [
+            InlineKeyboardButton("Open App", url=APP_LINK),
+            InlineKeyboardButton("Private Channel", url=PRIVATE_CHANNEL_LINK)
+        ],
+        [
+            InlineKeyboardButton("Customer Service", url=CUSTOMER_SERVICE_LINK),
+            InlineKeyboardButton("Invite Friends", url="https://t.me/share/url?url=https://t.me/yourchannel")
+        ]
+    ]
     
-    def _setup_scheduler(self):
-        """配置定时任务调度器"""
-        self.scheduler.add_job(
-            self._check_scheduled_posts,
-            'interval',
-            minutes=1,
-            timezone=pytz.UTC,
-            id='post_checker'
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    return text, reply_markup
+
+def send_scheduled_message(context: CallbackContext):
+    """定时发送消息到频道"""
+    try:
+        bot = context.bot
+        text, reply_markup = create_message()
+        
+        # 发送带图片的消息
+        bot.send_photo(
+            chat_id=CHANNEL_ID,
+            photo=IMAGE_URL,
+            caption=text,
+            parse_mode='Markdown',
+            reply_markup=reply_markup
         )
-        self.scheduler.start()
-    
-    def _check_scheduled_posts(self):
-        """检查并发送定时消息"""
-        try:
-            now = datetime.now(pytz.UTC).strftime('%H:%M')
-            scheduled_posts = self.redis.hgetall('scheduled_posts')
-            
-            for channel_id, post_time in scheduled_posts.items():
-                if post_time.decode('utf-8') == now:
-                    self._send_scheduled_message(channel_id.decode('utf-8'))
-        except Exception as e:
-            logger.error(f"Error in scheduled task: {e}")
-    
-    def _welcome_new_member(self, update: Update, context: CallbackContext):
-        """新成员加入处理"""
+        logger.info("Scheduled message sent successfully")
+    except Exception as e:
+        logger.error(f"Error sending scheduled message: {e}")
+        if ADMIN_CHAT_ID:
+            bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Error sending scheduled message: {e}")
+
+def welcome_new_member(update: Update, context: CallbackContext):
+    """欢迎新成员"""
+    try:
         for member in update.message.new_chat_members:
-            if member.is_bot:
+            if member.is_bot:  # 忽略其他机器人
                 continue
                 
-            try:
-                self._send_welcome_message(update.effective_chat.id, member.id)
-            except TelegramError as e:
-                logger.error(f"Error sending welcome message: {e}")
-    
-    def _send_welcome_message(self, chat_id, user_id):
-        """发送欢迎消息"""
-        photo_url = os.getenv('WELCOME_IMAGE_URL', 'https://example.com/welcome.jpg')
-        
-        welcome_text = """
-        Welcome to our channel! 🎉
+            text, reply_markup = create_message()
+            
+            # 发送欢迎消息
+            context.bot.send_photo(
+                chat_id=member.id,
+                photo=IMAGE_URL,
+                caption=f"Hi {member.first_name}! 👋\n\n{text}",
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+            logger.info(f"Welcome message sent to {member.first_name}")
+    except Exception as e:
+        logger.error(f"Error sending welcome message: {e}")
+        if ADMIN_CHAT_ID:
+            context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Error sending welcome message: {e}")
 
-        Here you'll find regular updates and interesting content.
-        Feel free to explore the options below:
-        """
-        
-        keyboard = [
-            [
-                InlineKeyboardButton("Open App", callback_data='open_app'),
-                InlineKeyboardButton("Private Channel", callback_data='private_channel')
-            ],
-            [
-                InlineKeyboardButton("Contact Support", callback_data='contact_support'),
-                InlineKeyboardButton("Invite Friends", callback_data='invite_friends')
-            ]
-        ]
-        
-        self.bot.send_photo(
-            chat_id=chat_id,
-            photo=photo_url,
-            caption=welcome_text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+def error_handler(update: Update, context: CallbackContext):
+    """错误处理"""
+    logger.error(msg="Exception while handling an update:", exc_info=context.error)
+    if ADMIN_CHAT_ID:
+        context.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text=f"An error occurred: {context.error}"
         )
-    
-    def _send_scheduled_message(self, channel_id):
-        """发送定时消息"""
-        photo_url = os.getenv('SCHEDULED_IMAGE_URL', 'https://example.com/scheduled.jpg')
-        
-        message_text = """
-        Daily Update 🌟
-
-        Here's your regular update with the latest news and content.
-        Check out the options below:
-        """
-        
-        keyboard = [
-            [
-                InlineKeyboardButton("Open App", callback_data='open_app'),
-                InlineKeyboardButton("Private Channel", callback_data='private_channel')
-            ],
-            [
-                InlineKeyboardButton("Contact Support", callback_data='contact_support'),
-                InlineKeyboardButton("Invite Friends", callback_data='invite_friends')
-            ]
-        ]
-        
-        try:
-            self.bot.send_photo(
-                chat_id=channel_id,
-                photo=photo_url,
-                caption=message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard))
-        except TelegramError as e:
-            logger.error(f"Error sending scheduled message: {e}")
-    
-    def _button_callback(self, update: Update, context: CallbackContext):
-        """按钮回调处理"""
-        query = update.callback_query
-        query.answer()
-        
-        data = query.data
-        chat_id = query.message.chat_id
-        
-        if data == 'open_app':
-            app_url = os.getenv('APP_URL', 'https://t.me/your_app')
-            self.bot.send_message(
-                chat_id=chat_id,
-                text=f"Please click here to open the app: {app_url}"
-            )
-        
-        elif data == 'private_channel':
-            channel_link = os.getenv('PRIVATE_CHANNEL_LINK', 'https://t.me/your_private_channel')
-            self.bot.send_message(
-                chat_id=chat_id,
-                text=f"Join our private channel here: {channel_link}"
-            )
-        
-        elif data == 'contact_support':
-            support_link = os.getenv('SUPPORT_LINK', 'https://t.me/your_support')
-            self.bot.send_message(
-                chat_id=chat_id,
-                text=f"Contact our support team here: {support_link}"
-            )
-        
-        elif data == 'invite_friends':
-            invite_link = os.getenv('INVITE_LINK', 'https://t.me/your_channel')
-            self.bot.send_message(
-                chat_id=chat_id,
-                text=f"Invite your friends to join us! Share this link: {invite_link}"
-            )
-    
-    def _set_schedule(self, update: Update, context: CallbackContext):
-        """设置定时任务命令"""
-        if len(context.args) != 2:
-            update.message.reply_text("Usage: /set_schedule <channel_id> <HH:MM>")
-            return
-        
-        channel_id, schedule_time = context.args
-        try:
-            self.redis.hset('scheduled_posts', channel_id, schedule_time)
-            update.message.reply_text(
-                f"Schedule set successfully!\n"
-                f"Channel: {channel_id}\n"
-                f"Time: {schedule_time} UTC"
-            )
-        except Exception as e:
-            update.message.reply_text(f"Error setting schedule: {e}")
-    
-    def _test_command(self, update: Update, context: CallbackContext):
-        """测试命令"""
-        update.message.reply_text("Bot is working!")
-    
-    def run(self):
-        """启动机器人"""
-        self.updater.start_polling()
-        self.updater.idle()
 
 def main():
-    # 从环境变量获取Token
-    token = os.getenv('TELEGRAM_TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN')
-    if not token:
-        raise ValueError(
-            "TELEGRAM_TOKEN environment variable not set. "
-            "Please set it in Railway Variables or .env file"
-        )
+    """启动机器人"""
+    # 创建Updater并传递bot的token
+    updater = Updater(TOKEN, use_context=True)
     
-    # 创建并运行机器人
-    bot = TelegramBot(token)
-    logger.info("Bot started successfully")
-    bot.run()
+    # 获取dispatcher来注册处理器
+    dp = updater.dispatcher
+    
+    # 添加处理器
+    dp.add_handler(MessageHandler(Filters.status_update.new_chat_members, welcome_new_member))
+    dp.add_error_handler(error_handler)
+    
+    # 设置定时任务
+    scheduler = BackgroundScheduler()
+    # 每天UTC时间8:00发送消息（可根据需要调整）
+    scheduler.add_job(
+        send_scheduled_message,
+        'cron',
+        hour=8,
+        minute=0,
+        args=[updater.job_queue.context]
+    )
+    scheduler.start()
+    
+    # 启动机器人
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
     main()
