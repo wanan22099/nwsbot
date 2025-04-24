@@ -120,7 +120,7 @@ def main():
         send_scheduled_message,
         'cron',
         hour=8,
-        minute=0,
+        minute=0
     )
     scheduler.start()
     
