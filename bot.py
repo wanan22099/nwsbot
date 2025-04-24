@@ -121,7 +121,6 @@ def main():
         'cron',
         hour=8,
         minute=0,
-        args=[updater.job_queue.context]
     )
     scheduler.start()
     
